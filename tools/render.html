@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Render assets</title>
+<style>body{font:14px system-ui;padding:16px;white-space:pre-wrap}</style></head>
+<body>Rendering…
+<script>
+// Rasterises the SVG sources at the sizes we need and POSTs each PNG back to tools/serve.py.
+const jobs = [
+  ['assets/icon.svg', 'favicon-16.png', 16, 16],
+  ['assets/icon.svg', 'favicon-32.png', 32, 32],
+  ['assets/icon.svg', 'favicon-48.png', 48, 48],
+  ['assets/icon.svg', 'apple-touch-icon.png', 180, 180],
+  ['assets/icon.svg', 'icon-192.png', 192, 192],
+  ['assets/icon.svg', 'icon-512.png', 512, 512],
+  ['assets/social-card.svg', 'social-card.png', 1200, 630],
+  ['assets/github-banner.svg', 'github-banner.png', 1600, 500],
+];
+(async () => {
+  const out = [];
+  for (const [src, name, w, h] of jobs) {
+    try {
+      const img = new Image();
+      img.src = '/' + src + '?t=' + Date.now();
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      const res = await fetch('/save?name=' + name, { method: 'POST', body: blob });
+      out.push(`${name}: ${res.status} (${blob.size} bytes)`);
+    } catch (e) { out.push(`${name}: FAILED ${e}`); }
+  }
+  document.body.textContent = 'DONE\n' + out.join('\n');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare</title>
+<meta name="description" content="Two-way and three-way file comparison and merge in the browser. Open files, see every change, copy blocks between panes, save. A single HTML file, no install.">
+<meta name="theme-color" content="#2563eb">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="alternate icon" href="assets/favicon.ico">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<!-- Social preview. Replace the image URLs with absolute ones (https://…/assets/social-card.png) when publishing. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Compare">
+<meta property="og:description" content="Two-way and three-way file comparison and merge in the browser. A single HTML file, no install.">
+<meta property="og:image" content="assets/social-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Compare">
+<meta name="twitter:description" content="Two-way and three-way file comparison and merge in the browser. A single HTML file, no install.">
+<meta name="twitter:image" content="assets/social-card.png">
+<style>
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --border:#d9dde3; --text:#1f2328; --muted:#6b7280;
+  --accent:#2563eb;
+  --ins-bg:#dcfce7; --ins-strong:#86efac;
+  --del-bg:#fee2e2; --del-strong:#fca5a5;
+  --chg-bg:#fef9c3; --chg-strong:#fde047;
+  --pad-bg:#e9ebef; --pad-stripe:rgba(0,0,0,.05);
+  --lnum:#9ca3af; --cur:#2563eb; --hover:rgba(37,99,235,.06);
+  --mono: ui-monospace,"Cascadia Code",Consolas,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --text:#e5e7eb; --muted:#9aa3b2;
+    --accent:#60a5fa;
+    --ins-bg:#122e1c; --ins-strong:#1f6b3a;
+    --del-bg:#3a1518; --del-strong:#7f2a2f;
+    --chg-bg:#382f10; --chg-strong:#7a6614;
+    --pad-bg:#1c2029; --pad-stripe:rgba(255,255,255,.04);
+    --lnum:#5b6373; --cur:#60a5fa; --hover:rgba(96,165,250,.08);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --text:#e5e7eb; --muted:#9aa3b2;
+  --accent:#60a5fa;
+  --ins-bg:#122e1c; --ins-strong:#1f6b3a;
+  --del-bg:#3a1518; --del-strong:#7f2a2f;
+  --chg-bg:#382f10; --chg-strong:#7a6614;
+  --pad-bg:#1c2029; --pad-stripe:rgba(255,255,255,.04);
+  --lnum:#5b6373; --cur:#60a5fa; --hover:rgba(96,165,250,.08);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--text);
+  font:14px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+body.dragging::after{content:"Drop files to open them. A single file goes into the pane under the cursor.";position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:22px;background:rgba(37,99,235,.12);border:3px dashed var(--accent);z-index:50;pointer-events:none;text-align:center;padding:20px}
+
+button{font:inherit;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover:not(:disabled){color:#fff;filter:brightness(1.1)}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--panel)}
+.brand{font-weight:700;letter-spacing:.2px;margin-right:6px}
+.group{display:flex;gap:4px;align-items:center}
+.group.right{margin-left:auto}
+.counter{font-variant-numeric:tabular-nums;min-width:64px;text-align:center;color:var(--muted)}
+.toolbar label{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:13px;white-space:nowrap;cursor:pointer}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.seg button{border:none;border-radius:0;padding:4px 10px}
+.seg button.on{background:var(--accent);color:#fff}
+.seg button.on:hover{color:#fff}
+
+/* main stage: table + overview ruler */
+#stage{flex:1;display:flex;min-height:0}
+#main{flex:1;overflow:auto;position:relative;background:var(--panel);min-width:0}
+#ruler{width:32px;flex:none;border-left:1px solid var(--border);background:var(--bg);cursor:pointer;position:relative;touch-action:none}
+#ruler canvas{display:block;width:100%;height:100%}
+
+table{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;
+  font-family:var(--mono);font-size:12.5px;line-height:1.5;tab-size:4}
+col.ln{width:52px} col.mid{width:58px}
+body.nowrap table{table-layout:auto;width:max-content;min-width:100%}
+body.nowrap col.tx{width:var(--colw,60ch)}
+
+thead th{position:sticky;top:0;z-index:3;background:var(--panel);border-bottom:1px solid var(--border);
+  padding:0;font:13px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-weight:normal;text-align:left;vertical-align:top}
+thead th.mid{border-left:1px solid var(--border);border-right:1px solid var(--border)}
+.pane{display:flex;flex-direction:column;min-width:0}
+.ptabs{display:flex;gap:3px;padding:5px 6px 0;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--border);background:var(--bg)}
+.ptabs::-webkit-scrollbar{display:none}
+.ptab{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 9px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;
+  background:transparent;color:var(--muted);font-size:12.5px;max-width:220px;margin-bottom:-1px;flex:none}
+.ptab .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ptab.on{background:var(--panel);color:var(--text);box-shadow:inset 0 2px 0 var(--accent);border-color:var(--border)}
+.ptab.dirty .t::after{content:" •";color:var(--accent)}
+.ptab .x{padding:0 4px;border-radius:4px;color:var(--muted);font-size:14px;line-height:1;visibility:hidden}
+.ptab:hover .x,.ptab.on .x{visibility:visible}
+.ptab .x:hover{background:#dc2626;color:#fff}
+.ptab.padd{padding:3px 8px;border-style:dashed}
+.pane-h{display:flex;gap:6px;align-items:center;padding:6px 8px;min-width:0}
+.fname{font:inherit;font-weight:600;border:1px solid transparent;background:transparent;color:var(--text);
+  padding:2px 6px;border-radius:4px;width:18ch;max-width:45%;min-width:6ch}
+.fname:hover,.fname:focus{border-color:var(--border);outline:none;background:var(--bg)}
+.meta{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.pane-h button{padding:2px 8px;font-size:12.5px}
+
+td{padding:0 8px;vertical-align:top;border-bottom:1px solid transparent}
+td.ln{text-align:right;color:var(--lnum);user-select:none;padding:0 8px 0 4px;
+  border-right:1px solid var(--border);font-size:11.5px}
+td.tx{white-space:pre-wrap;overflow-wrap:anywhere}
+body.nowrap td.tx{white-space:pre;overflow-wrap:normal}
+td.mid{text-align:center;padding:1px 2px;background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border);user-select:none}
+tr.r:hover td{background-image:linear-gradient(var(--hover),var(--hover))}
+
+td.ins{background-color:var(--ins-bg)} td.del{background-color:var(--del-bg)} td.chg{background-color:var(--chg-bg)}
+td.pad{background-color:var(--pad-bg);background-image:repeating-linear-gradient(135deg,var(--pad-stripe) 0 4px,transparent 4px 9px)}
+td.off{background-color:var(--bg)}
+td.chg .hl{background:var(--chg-strong);border-radius:2px}
+td.del .hl{background:var(--del-strong);border-radius:2px}
+td.ins .hl{background:var(--ins-strong);border-radius:2px}
+
+tr.cur td.ln{background:var(--cur)!important;color:#fff;background-image:none}
+tr.cur td.mid{box-shadow:inset 3px 0 0 var(--cur),inset -3px 0 0 var(--cur)}
+tr.d{cursor:pointer}
+.cp{padding:0;width:22px;height:20px;font-size:13px;line-height:18px;margin:1px 1px;border-radius:4px}
+tr.cur .cp{border-color:var(--cur);color:var(--cur)}
+
+tr.fold td{background:var(--bg);color:var(--muted);text-align:center;font:12px system-ui,sans-serif;padding:4px;cursor:pointer;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border)}
+tr.fold td:hover{color:var(--accent)}
+
+.empty{position:absolute;inset:80px 0 0 0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--muted);gap:8px}
+.empty h2{margin:0;color:var(--text);font-weight:600}
+.empty p{margin:0;max-width:600px;line-height:1.5}
+.empty[hidden]{display:none}
+
+.status{display:flex;justify-content:space-between;gap:12px;padding:6px 12px;border-top:1px solid var(--border);background:var(--panel);font-size:12.5px;color:var(--muted)}
+.status .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:760px){.status .hint{display:none}}
+
+dialog{width:min(960px,94vw);border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);padding:0}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog form{display:flex;flex-direction:column;gap:10px;padding:14px 16px}
+dialog h3{margin:0;font-size:15px;font-weight:600}
+dialog textarea{width:100%;height:60vh;font-family:var(--mono);font-size:13px;resize:vertical;background:var(--bg);color:var(--text);
+  border:1px solid var(--border);border-radius:6px;padding:8px;tab-size:4;white-space:pre;line-height:1.5}
+dialog menu{display:flex;justify-content:flex-end;gap:8px;margin:0;padding:0}
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div class="brand">Compare</div>
+  <div class="group">
+    <button id="openMany" title="Open one or more files. They appear as tabs in every pane.">Open files…</button>
+    <span class="seg" id="mode">
+      <button data-n="2" class="on" title="Two panes">2-way</button>
+      <button data-n="3" title="Three panes: left, centre, right. Differences are shown between adjacent panes.">3-way</button>
+    </span>
+  </div>
+  <div class="group">
+    <button id="prev" title="Previous difference (Alt+↑)">▲ Prev</button>
+    <span id="counter" class="counter">0 / 0</span>
+    <button id="next" title="Next difference (Alt+↓)">▼ Next</button>
+  </div>
+  <div class="group" id="copyGroup"></div>
+  <div class="group">
+    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+    <button id="swap" title="Swap the outer panes">Swap</button>
+  </div>
+  <div class="group">
+    <label><input type="checkbox" id="optWs"> Ignore whitespace</label>
+    <label><input type="checkbox" id="optCase"> Ignore case</label>
+    <label><input type="checkbox" id="optWrap" checked> Wrap lines</label>
+    <label><input type="checkbox" id="optOnly"> Only differences</label>
+  </div>
+  <div class="group right">
+    <button id="sample" title="Load sample files">Sample</button>
+    <button id="theme" title="Cycle light / dark / auto">Theme: Auto</button>
+  </div>
+</header>
+
+<div id="stage">
+<main id="main">
+  <table id="tbl">
+    <colgroup id="cols"></colgroup>
+    <thead><tr id="headRow"></tr></thead>
+    <tbody id="body"></tbody>
+  </table>
+  <div id="empty" class="empty">
+    <h2>Compare two or three text files</h2>
+    <p>Open files with the buttons above, drag and drop them anywhere on this page, or press <b>Edit</b> in a pane to paste text.</p>
+    <p>Every open file appears as a tab in each pane. Pick a file in each pane and the panes compare with each other. Switch to <b>3-way</b> to add a centre pane, for example for a common ancestor.</p>
+    <p><button id="emptySample" class="primary">Load sample files</button></p>
+  </div>
+</main>
+<div id="ruler" title="Overview of the files. Click or drag to scroll."><canvas id="rulerC"></canvas></div>
+</div>
+
+<footer class="status">
+  <span id="stats">Open files to compare.</span>
+  <span class="hint" id="hint"></span>
+</footer>
+
+<input type="file" id="fileOne" hidden>
+<input type="file" id="fileMany" hidden multiple>
+
+<dialog id="editor">
+  <form method="dialog">
+    <h3 id="edTitle">Edit</h3>
+    <textarea id="edText" spellcheck="false" placeholder="Paste or type text here…"></textarea>
+    <menu>
+      <button value="cancel">Cancel</button>
+      <button value="apply" class="primary">Apply</button>
+    </menu>
+  </form>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const TOK = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
+const MYERS_SMALL = 1500;   // n+m at or below this: plain Myers
+const MYERS_MAX = 3000;     // n+m at or below this when no anchors are found
+const CTX = 3;              // context lines in "only differences" mode
+const PANE_NAMES = { 2: ['Left', 'Right'], 3: ['Left', 'Centre', 'Right'] };
+
+const opts = { ws: false, nocase: false, wrap: true, only: false };
+const files = [];           // pool of open files: {id, name, lines, eol, trail, dirty}
+let fseq = 0;
+let panes = [null, null];   // file id shown in each pane (null = none)
+const view = { F: [], K: [], rows: [], hunks: [], pairBlocks: [], cur: -1, expanded: new Set() };
+const undoStack = [], redoStack = [];
+
+const esc = s => s.replace(/[&<>]/g, c => c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;');
+const nPanes = () => panes.length;
+const fileById = id => files.find(f => f.id === id) || null;
+const paneFile = p => panes[p] == null ? null : fileById(panes[p]);
+
+/* ---------------- diff engine ---------------- */
+
+// Myers O(ND) diff. Returns forward edit script: 0 = equal, 1 = delete (from a), 2 = insert (from b).
+function myersOps(a, b) {
+  const n = a.length, m = b.length, max = n + m;
+  if (max === 0) return [];
+  const off = max + 1;
+  const v = new Int32Array(2 * max + 3);
+  v[off + 1] = 0;
+  const trace = [];
+  let done = false;
+  for (let d = 0; d <= max && !done; d++) {
+    trace.push(v.slice(off - d - 1, off + d + 2));
+    for (let k = -d; k <= d; k += 2) {
+      let x;
+      if (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) x = v[off + k + 1];
+      else x = v[off + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      v[off + k] = x;
+      if (x >= n && y >= m) { done = true; break; }
+    }
+  }
+  const ops = [];
+  let x = n, y = m;
+  for (let d = trace.length - 1; d >= 0; d--) {
+    const snap = trace[d], so = d + 1, k = x - y;
+    let pk;
+    if (k === -d || (k !== d && snap[so + k - 1] < snap[so + k + 1])) pk = k + 1;
+    else pk = k - 1;
+    const px = snap[so + pk], py = px - pk;
+    while (x > px && y > py) { ops.push(0); x--; y--; }
+    if (d > 0) { ops.push(x === px ? 2 : 1); x = px; y = py; }
+  }
+  ops.reverse();
+  return ops;
+}
+
+function opsToBlocks(ops, ai, bi, out) {
+  let i = 0;
+  while (i < ops.length) {
+    if (ops[i] === 0) {
+      const s = i; while (i < ops.length && ops[i] === 0) i++;
+      const c = i - s;
+      out.push({ type: 'equal', ls: ai, le: ai + c, rs: bi, re: bi + c });
+      ai += c; bi += c;
+    } else {
+      let dl = 0, ins = 0;
+      while (i < ops.length && ops[i] !== 0) { if (ops[i] === 1) dl++; else ins++; i++; }
+      out.push({ type: dl && ins ? 'replace' : dl ? 'delete' : 'insert', ls: ai, le: ai + dl, rs: bi, re: bi + ins });
+      ai += dl; bi += ins;
+    }
+  }
+}
+
+// Patience anchors: lines unique in both ranges, longest increasing subsequence.
+function patienceAnchors(a, b, as, ae, bs, be) {
+  const ca = new Map(), cb = new Map();
+  for (let i = as; i < ae; i++) { const k = a[i], e = ca.get(k); if (e === undefined) ca.set(k, i); else if (e !== -1) ca.set(k, -1); }
+  for (let j = bs; j < be; j++) { const k = b[j], e = cb.get(k); if (e === undefined) cb.set(k, j); else if (e !== -1) cb.set(k, -1); }
+  const pairs = [];
+  for (let j = bs; j < be; j++) {
+    const k = b[j];
+    if (cb.get(k) !== j) continue;
+    const i = ca.get(k);
+    if (i === undefined || i === -1) continue;
+    pairs.push([i, j]);
+  }
+  if (!pairs.length) return [];
+  const tails = [], tailIdx = [], prev = new Int32Array(pairs.length).fill(-1);
+  for (let p = 0; p < pairs.length; p++) {
+    const val = pairs[p][0];
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < val) lo = mid + 1; else hi = mid; }
+    tails[lo] = val; tailIdx[lo] = p; prev[p] = lo > 0 ? tailIdx[lo - 1] : -1;
+  }
+  const res = [];
+  for (let p = tailIdx[tails.length - 1]; p !== -1; p = prev[p]) res.push(pairs[p]);
+  return res.reverse();
+}
+
+function diffRange(a, b, as, ae, bs, be, out) {
+  let s = 0;
+  while (as + s < ae && bs + s < be && a[as + s] === b[bs + s]) s++;
+  if (s) out.push({ type: 'equal', ls: as, le: as + s, rs: bs, re: bs + s });
+  as += s; bs += s;
+  let e = 0;
+  while (ae - e > as && be - e > bs && a[ae - 1 - e] === b[be - 1 - e]) e++;
+  const tailA = ae - e, tailB = be - e;
+  ae = tailA; be = tailB;
+  const n = ae - as, m = be - bs;
+  if (n === 0 && m === 0) { /* nothing */ }
+  else if (n === 0) out.push({ type: 'insert', ls: as, le: as, rs: bs, re: be });
+  else if (m === 0) out.push({ type: 'delete', ls: as, le: ae, rs: bs, re: bs });
+  else if (n + m <= MYERS_SMALL) opsToBlocks(myersOps(a.slice(as, ae), b.slice(bs, be)), as, bs, out);
+  else {
+    const anchors = patienceAnchors(a, b, as, ae, bs, be);
+    if (!anchors.length) {
+      if (n + m <= MYERS_MAX) opsToBlocks(myersOps(a.slice(as, ae), b.slice(bs, be)), as, bs, out);
+      else out.push({ type: 'replace', ls: as, le: ae, rs: bs, re: be });
+    } else {
+      let pa = as, pb = bs;
+      for (const [ia, ib] of anchors) {
+        diffRange(a, b, pa, ia, pb, ib, out);
+        out.push({ type: 'equal', ls: ia, le: ia + 1, rs: ib, re: ib + 1 });
+        pa = ia + 1; pb = ib + 1;
+      }
+      diffRange(a, b, pa, ae, pb, be, out);
+    }
+  }
+  if (e) out.push({ type: 'equal', ls: tailA, le: tailA + e, rs: tailB, re: tailB + e });
+}
+
+function mergeBlocks(list) {
+  const r = [];
+  for (const b of list) {
+    const p = r[r.length - 1];
+    if (p && (p.type === 'equal') === (b.type === 'equal') && p.le === b.ls && p.re === b.rs) {
+      p.le = b.le; p.re = b.re;
+      if (p.type !== 'equal') {
+        const dl = p.le - p.ls, ins = p.re - p.rs;
+        p.type = dl && ins ? 'replace' : dl ? 'delete' : 'insert';
+      }
+    } else r.push({ ...b });
+  }
+  return r;
+}
+
+function computeDiff(a, b) {
+  const out = [];
+  diffRange(a, b, 0, a.length, 0, b.length, out);
+  return mergeBlocks(out);
+}
+
+// Word-level comparison of two lines. Returns tokens and per-token "changed" flags (null flags = too long to bother).
+function inlineFlags(sa, sb, key) {
+  const ta = sa.match(TOK) || [], tb = sb.match(TOK) || [];
+  if (ta.length > 400 || tb.length > 400) return { ta, tb, fa: null, fb: null };
+  const ops = myersOps(ta.map(key), tb.map(key));
+  const fa = new Uint8Array(ta.length), fb = new Uint8Array(tb.length);
+  let ia = 0, ib = 0;
+  for (const op of ops) {
+    if (op === 0) { ia++; ib++; }
+    else if (op === 1) fa[ia++] = 1;
+    else fb[ib++] = 1;
+  }
+  return { ta, tb, fa, fb };
+}
+function renderToks(toks, flags) {
+  let h = '', open = false;
+  for (let i = 0; i < toks.length; i++) {
+    if (flags[i] && !open) { h += '<span class="hl">'; open = true; }
+    else if (!flags[i] && open) { h += '</span>'; open = false; }
+    h += esc(toks[i]);
+  }
+  if (open) h += '</span>';
+  return h;
+}
+
+/* ---------------- alignment across panes ---------------- */
+
+// Pairwise blocks -> aligned [a, b] index rows (-1 = no line).
+function blocksToRows(blocks) {
+  const rows = [];
+  for (const b of blocks) {
+    if (b.type === 'equal') { for (let i = 0; i < b.le - b.ls; i++) rows.push([b.ls + i, b.rs + i]); }
+    else {
+      const ln = b.le - b.ls, rn = b.re - b.rs, k = Math.max(ln, rn);
+      for (let i = 0; i < k; i++) rows.push([i < ln ? b.ls + i : -1, i < rn ? b.rs + i : -1]);
+    }
+  }
+  return rows;
+}
+// Combine A<->B rows and B<->C rows into [a, b, c] rows, anchored on B.
+function combine3(ab, bc) {
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < ab.length || j < bc.length) {
+    const aRun = [], cRun = [];
+    while (i < ab.length && ab[i][1] < 0) aRun.push(ab[i++][0]);
+    while (j < bc.length && bc[j][0] < 0) cRun.push(bc[j++][1]);
+    const k = Math.max(aRun.length, cRun.length);
+    for (let t = 0; t < k; t++) rows.push([t < aRun.length ? aRun[t] : -1, -1, t < cRun.length ? cRun[t] : -1]);
+    if (i < ab.length && j < bc.length) { rows.push([ab[i][0], ab[i][1], bc[j][1]]); i++; j++; }
+    else if (i < ab.length) { rows.push([ab[i][0], ab[i][1], -1]); i++; }
+    else if (j < bc.length) { rows.push([-1, bc[j][0], bc[j][1]]); j++; }
+  }
+  return rows;
+}
+
+function keyFn() {
+  const { ws, nocase } = opts;
+  if (!ws && !nocase) return s => s;
+  return s => {
+    let k = s;
+    if (ws) k = k.replace(/\s+/g, ' ').trim();
+    if (nocase) k = k.toLowerCase();
+    return k;
+  };
+}
+
+function recompute() {
+  const n = nPanes(), key = keyFn();
+  const active = [], F = [], K = [];
+  for (let p = 0; p < n; p++) { const f = paneFile(p); active.push(!!f); F.push(f ? f.lines : []); K.push(F[p].map(key)); }
+  view.F = F; view.K = K; view.active = active;
+  // With an empty centre pane, the two outer panes are compared with each other directly.
+  view.outer = n === 3 && !active[1] && active[0] && active[2];
+  const relOf = (p, q, a, b) => {
+    if (!active[p] || !active[q]) return 'none';
+    if (a >= 0 && b >= 0) return K[p][a] === K[q][b] ? 'eq' : 'chg';
+    return a >= 0 ? 'l' : b >= 0 ? 'r' : 'none';
+  };
+  let idxRows;
+  if (view.outer) {
+    const bl = computeDiff(K[0], K[2]);
+    view.pairBlocks = [bl, bl];
+    idxRows = blocksToRows(bl).map(([a, c]) => [a, -1, c]);
+  } else {
+    view.pairBlocks = []; const pairRows = [];
+    for (let p = 0; p < n - 1; p++) { const bl = computeDiff(K[p], K[p + 1]); view.pairBlocks.push(bl); pairRows.push(blocksToRows(bl)); }
+    idxRows = n === 2 ? pairRows[0] : combine3(pairRows[0], pairRows[1]);
+  }
+  view.rows = idxRows.map(idx => {
+    const rel = [];
+    if (view.outer) { const x = relOf(0, 2, idx[0], idx[2]); rel.push(x, x); }
+    else for (let p = 0; p < n - 1; p++) rel.push(relOf(p, p + 1, idx[p], idx[p + 1]));
+    let eq = true;
+    for (let p = 0; p < n; p++) if (active[p] && idx[p] < 0) eq = false;
+    for (const r of rel) if (r !== 'eq' && r !== 'none') eq = false;
+    return { idx, rel, eq, hunk: -1 };
+  });
+  view.hunks = [];
+  let h = null;
+  view.rows.forEach((r, i) => {
+    if (r.eq) { h = null; return; }
+    if (!h) { h = { start: i, end: i + 1, pairs: new Array(n - 1).fill(false) }; view.hunks.push(h); }
+    h.end = i + 1; r.hunk = view.hunks.length - 1;
+    r.rel.forEach((x, p) => { if (x !== 'eq' && x !== 'none') h.pairs[p] = true; });
+  });
+  view.expanded.clear();
+  view.cur = view.hunks.length ? Math.min(Math.max(view.cur, 0), view.hunks.length - 1) : -1;
+}
+
+// Adjacent pairs of panes that hold files, e.g. [[0,1],[1,2]] or [[0,2]] when the centre is empty.
+function activePairs() {
+  const A = [];
+  for (let p = 0; p < nPanes(); p++) if (view.active[p]) A.push(p);
+  const r = [];
+  for (let i = 0; i < A.length - 1; i++) r.push([A[i], A[i + 1]]);
+  return r;
+}
+
+// Line range [start, end) that a hunk covers in pane p (an insertion point when the pane has no lines there).
+function hunkRange(h, p) {
+  let s = -1, e = -1;
+  for (let i = h.start; i < h.end; i++) { const v = view.rows[i].idx[p]; if (v >= 0) { if (s < 0) s = v; e = v + 1; } }
+  if (s < 0) {
+    let nx = view.F[p].length;
+    for (let i = h.end; i < view.rows.length; i++) { const v = view.rows[i].idx[p]; if (v >= 0) { nx = v; break; } }
+    s = e = nx;
+  }
+  return [s, e];
+}
+
+/* ---------------- files & undo ---------------- */
+
+function parseText(text) {
+  const eol = text.includes('\r\n') ? '\r\n' : (text.includes('\r') && !text.includes('\n')) ? '\r' : '\n';
+  let lines = text === '' ? [] : text.split(/\r\n|\r|\n/);
+  let trail = false;
+  if (lines.length > 1 && lines[lines.length - 1] === '') { lines.pop(); trail = true; }
+  return { lines, eol, trail };
+}
+function serialize(f) { return f.lines.join(f.eol) + (f.trail && f.lines.length ? f.eol : ''); }
+
+function addFile(name, text) {
+  const f = { id: ++fseq, name, dirty: false, ...parseText(text) };
+  files.push(f);
+  return f;
+}
+function firstEmptyPane() { for (let p = 0; p < nPanes(); p++) if (panes[p] == null) return p; return -1; }
+function closeFile(id) {
+  const f = fileById(id);
+  if (!f) return;
+  if (f.dirty && !confirm(`"${f.name}" has unsaved changes. Close it anyway?`)) return;
+  files.splice(files.indexOf(f), 1);
+  panes = panes.map(x => x === id ? null : x);
+  refresh();
+}
+
+function pushUndo(f, dirty) {
+  undoStack.push({ id: f.id, lines: f.lines.slice(), dirty: f.dirty });
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack.length = 0;
+  if (dirty) f.dirty = true;
+}
+function applyHistory(from, to) {
+  while (from.length) {
+    const e = from.pop(), f = fileById(e.id);
+    if (!f) continue;                       // file was closed since
+    to.push({ id: f.id, lines: f.lines.slice(), dirty: f.dirty });
+    f.lines = e.lines; f.dirty = e.dirty;
+    refresh(); if (view.hunks.length) goTo(view.cur);
+    return;
+  }
+  updateUI();
+}
+const undo = () => applyHistory(undoStack, redoStack);
+const redo = () => applyHistory(redoStack, undoStack);
+
+function copyHunk(hi, from, to) {
+  const h = view.hunks[hi], fFrom = paneFile(from), fTo = paneFile(to);
+  if (!h || !fFrom || !fTo) return;
+  const [fs, fe] = hunkRange(h, from), [ts, te] = hunkRange(h, to);
+  pushUndo(fTo, true);
+  fTo.lines = fTo.lines.slice(0, ts).concat(fFrom.lines.slice(fs, fe), fTo.lines.slice(te));
+  view.cur = hi;
+  refresh();
+  if (view.hunks.length) goTo(view.cur);
+}
+
+function setPanes(n) {
+  if (n === nPanes()) return;
+  if (n === 3) {
+    const used = new Set(panes);
+    const next = files.find(f => !used.has(f.id));
+    panes = [panes[0], next ? next.id : null, panes[1]];
+  } else panes = [panes[0], panes[2]];
+  document.querySelectorAll('#mode button').forEach(b => b.classList.toggle('on', +b.dataset.n === n));
+  refresh();
+  if (view.hunks.length) goTo(view.cur);
+}
+
+/* ---------------- rendering ---------------- */
+
+function refresh() { recompute(); renderHeader(); renderRows(); updateUI(); }
+
+function renderHeader() {
+  const n = nPanes(), names = PANE_NAMES[n];
+  let cols = '', head = '';
+  for (let p = 0; p < n; p++) {
+    if (p) { cols += '<col class="mid">'; head += '<th class="mid"></th>'; }
+    cols += '<col class="ln"><col class="tx">';
+    const f = paneFile(p);
+    const tabs = files.map(fl => `<button class="ptab${panes[p] === fl.id ? ' on' : ''}${fl.dirty ? ' dirty' : ''}" data-p="${p}" data-fid="${fl.id}" title="${esc(fl.name)}"><span class="t">${esc(fl.name)}</span><span class="x" data-close="${fl.id}" title="Close file">×</span></button>`).join('');
+    const info = f
+      ? `<input class="fname" data-p="${p}" value="${esc(f.name).replace(/"/g, '&quot;')}" spellcheck="false" title="File name used when saving"><span class="meta">${f.lines.length} lines</span>`
+      : `<span class="meta">${names[p]}: no file. Pick a tab, open a file, or press Edit to start a new one.</span>`;
+    head += `<th colspan="2"><div class="pane">
+      <div class="ptabs">${tabs}<button class="ptab padd" data-p="${p}" title="Open a file in this pane">+</button></div>
+      <div class="pane-h">${info}<span class="spacer"></span>
+        <button data-act="open" data-p="${p}">Open…</button>
+        <button data-act="edit" data-p="${p}">Edit</button>
+        <button data-act="save" data-p="${p}"${f ? '' : ' disabled'}>Save</button>
+      </div></div></th>`;
+  }
+  $('#cols').innerHTML = cols;
+  $('#headRow').innerHTML = head;
+  // toolbar copy buttons for each adjacent pair
+  let cg = '';
+  for (const [p, q] of activePairs()) {
+    const a = names[p], b = names[q];
+    cg += `<button class="cpy" data-from="${p}" data-to="${q}" title="Copy current block from ${a} to ${b}">${n === 2 ? 'Copy →' : a + ' → ' + b}</button>`;
+    cg += `<button class="cpy" data-from="${q}" data-to="${p}" title="Copy current block from ${b} to ${a}">${n === 2 ? '← Copy' : a + ' ← ' + b}</button>`;
+  }
+  $('#copyGroup').innerHTML = cg;
+  $('#ruler').style.width = (10 * n + 3 * (n + 1) + 1) + 'px';
+  $('#hint').textContent = n === 2
+    ? 'Alt+↑/↓ navigate · Ctrl+→ / Ctrl+← copy current block · Ctrl+Z undo · click a block to select it'
+    : 'Alt+↑/↓ navigate · Ctrl+→ copy Left→Centre · Ctrl+← copy Right→Centre · Ctrl+Z undo';
+}
+
+function rowHtml(ri, key, pairs) {
+  const n = nPanes(), r = view.rows[ri], F = view.F;
+  const first = r.hunk >= 0 && view.hunks[r.hunk].start === ri, cur = r.hunk >= 0 && r.hunk === view.cur;
+  const toks = new Array(n).fill(null), flags = new Array(n).fill(null);
+  for (const [a, b] of pairs) {
+    if (r.rel[a] !== 'chg') continue;
+    const { ta, tb, fa, fb } = inlineFlags(F[a][r.idx[a]], F[b][r.idx[b]], key);
+    if (!fa) continue;
+    toks[a] = ta; toks[b] = tb;
+    flags[a] = flags[a] ? flags[a].map((v, i) => v | fa[i]) : fa;
+    flags[b] = flags[b] ? flags[b].map((v, i) => v | fb[i]) : fb;
+  }
+  let cells = '';
+  for (let p = 0; p < n; p++) {
+    if (p) {
+      let mid = '';
+      const pair = first ? pairs.find(([a]) => a === p - 1) : null;   // pair whose left pane sits just before this gutter
+      if (pair && view.hunks[r.hunk].pairs[pair[0]]) {
+        mid = `<button class="cp" data-h="${r.hunk}" data-from="${pair[0]}" data-to="${pair[1]}" title="Copy this block to the right">→</button><button class="cp" data-h="${r.hunk}" data-from="${pair[1]}" data-to="${pair[0]}" title="Copy this block to the left">←</button>`;
+      }
+      cells += `<td class="mid">${mid}</td>`;
+    }
+    const li = r.idx[p];
+    if (!view.active[p]) { cells += '<td class="ln off"></td><td class="tx off"></td>'; continue; }
+    if (li < 0) { cells += '<td class="ln pad"></td><td class="tx pad"></td>'; continue; }
+    const relL = p > 0 ? r.rel[p - 1] : null, relR = p < n - 1 ? r.rel[p] : null;
+    const chg = relL === 'chg' || relR === 'chg', missL = relL === 'r', missR = relR === 'l';
+    const kind = chg || (missL && missR) ? 'chg' : missR ? 'del' : missL ? 'ins' : '';
+    const html = flags[p] ? renderToks(toks[p], flags[p]) : esc(F[p][li]);
+    cells += `<td class="ln ${kind}">${li + 1}</td><td class="tx ${kind}">${html}</td>`;
+  }
+  return `<tr class="r ${r.hunk >= 0 ? 'd' : 'eq'}${cur ? ' cur' : ''}"${r.hunk >= 0 ? ` data-h="${r.hunk}"` : ''}>${cells}</tr>`;
+}
+
+function renderRows() {
+  const rows = view.rows, key = keyFn(), out = [], ncols = nPanes() * 3 - 1, pairs = activePairs();
+  const row = ri => rowHtml(ri, key, pairs);
+  let i = 0;
+  while (i < rows.length) {
+    if (!rows[i].eq) { out.push(row(i)); i++; continue; }
+    let j = i; while (j < rows.length && rows[j].eq) j++;
+    const cnt = j - i;
+    if (opts.only && !view.expanded.has(i)) {
+      const head = i === 0 ? 0 : CTX, tail = j === rows.length ? 0 : CTX;
+      if (cnt > head + tail + 1) {
+        for (let k = 0; k < head; k++) out.push(row(i + k));
+        out.push(`<tr class="fold" data-b="${i}"><td colspan="${ncols}">⋯ ${cnt - head - tail} unchanged lines — click to expand</td></tr>`);
+        for (let k = cnt - tail; k < cnt; k++) out.push(row(i + k));
+        i = j; continue;
+      }
+    }
+    for (let k = 0; k < cnt; k++) out.push(row(i + k));
+    i = j;
+  }
+  $('#body').innerHTML = out.join('');
+  let max = 0;
+  for (const ls of view.F) for (const s of ls) if (s.length > max) max = s.length;
+  $('#tbl').style.setProperty('--colw', Math.min(max + 4, 1000) + 'ch');
+  $('#empty').hidden = files.length > 0;
+  measureRows();
+  drawRuler(true);
+}
+
+function updateUI() {
+  const nh = view.hunks.length, n = nPanes();
+  $('#counter').textContent = nh ? `${view.cur + 1} / ${nh}` : '0 / 0';
+  $('#prev').disabled = !nh || view.cur <= 0;
+  $('#next').disabled = !nh || view.cur >= nh - 1;
+  document.querySelectorAll('#copyGroup .cpy').forEach(b => {
+    const h = view.hunks[view.cur];
+    b.disabled = !h || !paneFile(+b.dataset.from) || !paneFile(+b.dataset.to);
+  });
+  $('#undo').disabled = !undoStack.some(e => fileById(e.id));
+  $('#redo').disabled = !redoStack.some(e => fileById(e.id));
+  $('#swap').disabled = files.length === 0;
+  let msg;
+  const activeCount = view.active.filter(Boolean).length;
+  if (!files.length) msg = 'Open files to compare.';
+  else if (activeCount < 2) msg = 'Select a file in at least two panes to compare them.';
+  else if (!nh) {
+    const ig = [opts.ws && 'whitespace', opts.nocase && 'case'].filter(Boolean).join(' and ');
+    msg = 'Files are identical' + (ig ? ` (ignoring ${ig})` : '') + '.';
+  } else if (n === 2) {
+    const c = { replace: 0, insert: 0, delete: 0 };
+    let plus = 0, minus = 0;
+    for (const d of view.pairBlocks[0]) { if (d.type === 'equal') continue; c[d.type]++; plus += d.re - d.rs; minus += d.le - d.ls; }
+    const parts = [];
+    if (c.replace) parts.push(`${c.replace} changed`);
+    if (c.insert) parts.push(`${c.insert} added`);
+    if (c.delete) parts.push(`${c.delete} removed`);
+    msg = `${nh} difference${nh === 1 ? '' : 's'} · ${parts.join(' · ')} · +${plus} / −${minus} lines`;
+  } else {
+    const names = PANE_NAMES[3], parts = [];
+    for (const [p, q] of activePairs()) {
+      parts.push(`${names[p]}↔${names[q]}: ${view.pairBlocks[p].filter(b => b.type !== 'equal').length}`);
+    }
+    msg = `${nh} difference${nh === 1 ? '' : 's'} · ${parts.join(' · ')}`;
+  }
+  $('#stats').textContent = msg;
+}
+
+function markCurrent(scroll) {
+  document.querySelectorAll('tr.cur').forEach(t => t.classList.remove('cur'));
+  const rows = document.querySelectorAll(`tr[data-h="${view.cur}"]`);
+  rows.forEach(t => t.classList.add('cur'));
+  if (scroll && rows[0]) rows[0].scrollIntoView({ block: 'center' });
+  drawRuler(true);
+}
+function goTo(i, scroll = true) {
+  const n = view.hunks.length;
+  if (!n) return;
+  view.cur = Math.max(0, Math.min(i, n - 1));
+  markCurrent(scroll);
+  updateUI();
+}
+
+/* ---------------- overview ruler ---------------- */
+
+const ruler = { n: 0, lanes: 2, top: null, h: null, kind: null, len: null, dd: null, static: document.createElement('canvas') };
+const KIND = { none: 0, chg: 1, del: 2, ins: 3, pad: 4, fold: 5, off: 6 };
+function cellKind(cls) {
+  return cls.includes('chg') ? 1 : cls.includes('del') ? 2 : cls.includes('ins') ? 3 : cls.includes('pad') ? 4 : cls.includes('off') ? 6 : 0;
+}
+function measureRows() {
+  const trs = $('#body').rows, n = trs.length, lanes = nPanes();
+  ruler.n = n; ruler.lanes = lanes;
+  ruler.top = new Float32Array(n); ruler.h = new Float32Array(n);
+  ruler.kind = new Uint8Array(n * lanes); ruler.len = new Float32Array(n * lanes);
+  ruler.dd = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const tr = trs[i], c = tr.cells;
+    ruler.top[i] = tr.offsetTop; ruler.h[i] = tr.offsetHeight;
+    if (c.length === 1) { for (let p = 0; p < lanes; p++) ruler.kind[i * lanes + p] = KIND.fold; }
+    else for (let p = 0; p < lanes; p++) {
+      const cell = c[1 + 3 * p];
+      ruler.kind[i * lanes + p] = cellKind(cell.className);
+      ruler.len[i * lanes + p] = Math.min(cell.textContent.length, 80) / 80;
+    }
+    ruler.dd[i] = tr.dataset.h !== undefined ? +tr.dataset.h : -1;
+  }
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function drawStatic() {
+  const main = $('#main'), H = main.clientHeight, W = $('#ruler').clientWidth, dpr = window.devicePixelRatio || 1;
+  const sc = ruler.static;
+  sc.width = Math.max(1, Math.round(W * dpr)); sc.height = Math.max(1, Math.round(H * dpr));
+  const g = sc.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (!ruler.n) return;
+  const SH = Math.max(main.scrollHeight, 1), lanes = ruler.lanes;
+  const col = { text: cssVar('--lnum'), chg: cssVar('--chg-strong'), del: cssVar('--del-strong'), ins: cssVar('--ins-strong'), pad: cssVar('--pad-bg'), fold: cssVar('--border'), cur: cssVar('--cur') };
+  const gap = 3, laneW = Math.max(2, Math.floor((W - gap * (lanes + 1)) / lanes));
+  const scale = H / SH;
+  let curY0 = Infinity, curY1 = -Infinity;
+  for (let i = 0; i < ruler.n; i++) {
+    const y = ruler.top[i] * scale, hh = Math.max(1, ruler.h[i] * scale);
+    if (ruler.kind[i * lanes] === KIND.fold) { g.fillStyle = col.fold; g.fillRect(0, y, W, 1); continue; }
+    for (let p = 0; p < lanes; p++) {
+      const x = gap + p * (laneW + gap), kind = ruler.kind[i * lanes + p], len = ruler.len[i * lanes + p];
+      if (kind === KIND.chg) { g.fillStyle = col.chg; g.fillRect(x, y, laneW, hh); }
+      else if (kind === KIND.del) { g.fillStyle = col.del; g.fillRect(x, y, laneW, hh); }
+      else if (kind === KIND.ins) { g.fillStyle = col.ins; g.fillRect(x, y, laneW, hh); }
+      else if (kind === KIND.pad) { g.fillStyle = col.pad; g.fillRect(x, y, laneW, hh); }
+      else if (kind === KIND.none && len > 0) { g.globalAlpha = 0.5; g.fillStyle = col.text; g.fillRect(x, y, Math.max(1, laneW * len), hh); g.globalAlpha = 1; }
+    }
+    if (view.cur >= 0 && ruler.dd[i] === view.cur) { curY0 = Math.min(curY0, y); curY1 = Math.max(curY1, y + hh); }
+  }
+  if (curY0 < Infinity) {
+    g.strokeStyle = col.cur; g.lineWidth = 1.5;
+    g.strokeRect(1, Math.max(1, curY0 - 1), W - 2, Math.max(3, curY1 - curY0 + 2));
+  }
+}
+let rulerRaf = 0;
+function drawRuler(full) {
+  if (full) drawStatic();
+  if (rulerRaf) return;
+  rulerRaf = requestAnimationFrame(() => {
+    rulerRaf = 0;
+    const main = $('#main'), c = $('#rulerC'), H = main.clientHeight, W = $('#ruler').clientWidth, dpr = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.round(W * dpr)); c.height = Math.max(1, Math.round(H * dpr));
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    if (ruler.static.width && ruler.static.height) g.drawImage(ruler.static, 0, 0, W, H);
+    const SH = main.scrollHeight;
+    if (SH > main.clientHeight + 1 && ruler.n) {
+      const vy = main.scrollTop / SH * H, vh = main.clientHeight / SH * H;
+      g.fillStyle = cssVar('--accent'); g.globalAlpha = 0.14; g.fillRect(0, vy, W, vh);
+      g.globalAlpha = 0.6; g.fillRect(0, vy, W, 1); g.fillRect(0, vy + vh - 1, W, 1);
+      g.globalAlpha = 1;
+    }
+  });
+}
+function rulerScrollTo(clientY) {
+  const main = $('#main'), r = $('#ruler').getBoundingClientRect();
+  const y = Math.max(0, Math.min(clientY - r.top, r.height));
+  main.scrollTop = y / r.height * main.scrollHeight - main.clientHeight / 2;
+}
+{
+  const el = $('#ruler');
+  let dragging = false;
+  el.addEventListener('pointerdown', e => { dragging = true; el.setPointerCapture(e.pointerId); rulerScrollTo(e.clientY); e.preventDefault(); });
+  el.addEventListener('pointermove', e => { if (dragging) rulerScrollTo(e.clientY); });
+  el.addEventListener('pointerup', () => { dragging = false; });
+  el.addEventListener('pointercancel', () => { dragging = false; });
+  $('#main').addEventListener('scroll', () => drawRuler(false), { passive: true });
+  new ResizeObserver(() => { measureRows(); drawRuler(true); }).observe($('#main'));
+}
+
+/* ---------------- opening, saving, editing ---------------- */
+
+function readInto(f, file) {
+  const rd = new FileReader();
+  rd.onload = () => { Object.assign(f, parseText(String(rd.result))); refresh(); if (view.hunks.length) goTo(view.cur); };
+  rd.onerror = () => alert('Could not read ' + file.name);
+  rd.readAsText(file);
+}
+// Open files into the pool. `pane` (optional) selects the first file in that pane; others fill empty panes.
+function openFiles(fileList, pane = -1) {
+  const list = [...fileList];
+  if (!list.length) return;
+  list.forEach((file, i) => {
+    const f = addFile(file.name, '');
+    let target = -1;
+    if (i === 0 && pane >= 0) target = pane;
+    else target = firstEmptyPane();
+    if (target >= 0) panes[target] = f.id;
+    readInto(f, file);
+  });
+  refresh();
+}
+function saveFile(f) {
+  const blob = new Blob([serialize(f)], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = f.name || 'file.txt';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  f.dirty = false;
+  renderHeader(); updateUI();
+}
+let editFile = null;
+function openEditor(p) {
+  let f = paneFile(p);
+  if (!f) { f = addFile('untitled.txt', ''); panes[p] = f.id; refresh(); }
+  editFile = f;
+  $('#edTitle').textContent = `Edit ${f.name} (${PANE_NAMES[nPanes()][p]})`;
+  $('#edText').value = serialize(f);
+  $('#editor').showModal();
+  $('#edText').focus();
+}
+
+/* ---------------- wiring ---------------- */
+
+$('#prev').onclick = () => goTo(view.cur - 1);
+$('#next').onclick = () => goTo(view.cur + 1);
+$('#copyGroup').addEventListener('click', e => { const b = e.target.closest('.cpy'); if (b) copyHunk(view.cur, +b.dataset.from, +b.dataset.to); });
+$('#undo').onclick = undo;
+$('#redo').onclick = redo;
+$('#swap').onclick = () => { const l = panes.length - 1; [panes[0], panes[l]] = [panes[l], panes[0]]; refresh(); if (view.hunks.length) goTo(view.cur); };
+$('#mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPanes(+b.dataset.n); });
+$('#openMany').onclick = () => $('#fileMany').click();
+$('#fileMany').onchange = e => { openFiles(e.target.files); e.target.value = ''; };
+let onePane = 0;
+$('#fileOne').onchange = e => { if (e.target.files[0]) openFiles([e.target.files[0]], onePane); e.target.value = ''; };
+
+function optionsChanged() { refresh(); if (view.hunks.length) goTo(view.cur); }
+$('#optWs').onchange = e => { opts.ws = e.target.checked; optionsChanged(); };
+$('#optCase').onchange = e => { opts.nocase = e.target.checked; optionsChanged(); };
+$('#optOnly').onchange = e => { opts.only = e.target.checked; optionsChanged(); };
+$('#optWrap').onchange = e => { opts.wrap = e.target.checked; document.body.classList.toggle('nowrap', !e.target.checked); measureRows(); drawRuler(true); };
+
+$('#headRow').addEventListener('click', e => {
+  const x = e.target.closest('[data-close]');
+  if (x) { e.stopPropagation(); closeFile(+x.dataset.close); return; }
+  const add = e.target.closest('.padd');
+  if (add) { onePane = +add.dataset.p; $('#fileOne').click(); return; }
+  const tab = e.target.closest('.ptab');
+  if (tab) { const p = +tab.dataset.p, id = +tab.dataset.fid; if (panes[p] !== id) { panes[p] = id; refresh(); if (view.hunks.length) goTo(view.cur); } return; }
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const p = +btn.dataset.p;
+  if (btn.dataset.act === 'open') { onePane = p; $('#fileOne').click(); }
+  else if (btn.dataset.act === 'edit') openEditor(p);
+  else if (btn.dataset.act === 'save') { const f = paneFile(p); if (f) saveFile(f); }
+});
+$('#headRow').addEventListener('auxclick', e => { const tab = e.target.closest('.ptab[data-fid]'); if (tab && e.button === 1) { e.preventDefault(); closeFile(+tab.dataset.fid); } });
+$('#headRow').addEventListener('input', e => {
+  const inp = e.target.closest('.fname');
+  if (!inp) return;
+  const f = paneFile(+inp.dataset.p);
+  if (!f) return;
+  f.name = inp.value;
+  document.querySelectorAll(`.ptab[data-fid="${f.id}"] .t`).forEach(t => { t.textContent = f.name; });
+});
+$('#headRow').addEventListener('keydown', e => { if (e.target.closest('.fname') && e.key === 'Enter') e.target.blur(); });
+
+$('#editor form').addEventListener('submit', e => {
+  e.preventDefault();
+  const action = e.submitter ? e.submitter.value : 'cancel';
+  $('#editor').close();
+  if (action === 'apply' && editFile && fileById(editFile.id)) {
+    pushUndo(editFile, true);
+    Object.assign(editFile, parseText($('#edText').value));
+    view.cur = Math.max(view.cur, 0);
+    refresh();
+    if (view.hunks.length) goTo(view.cur);
+  }
+});
+$('#edText').addEventListener('keydown', e => {
+  if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+});
+
+$('#body').addEventListener('click', e => {
+  const cp = e.target.closest('button.cp');
+  if (cp) { copyHunk(+cp.dataset.h, +cp.dataset.from, +cp.dataset.to); return; }
+  const fold = e.target.closest('tr.fold');
+  if (fold) { view.expanded.add(+fold.dataset.b); renderRows(); return; }
+  const row = e.target.closest('tr.d');
+  if (row) { view.cur = +row.dataset.h; markCurrent(false); updateUI(); }
+});
+
+document.addEventListener('keydown', e => {
+  if ($('#editor').open) return;
+  const t = e.target, inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+  if (inField && !e.altKey && !e.ctrlKey) return;
+  const k = e.key.toLowerCase(), pairs = activePairs();
+  if (e.altKey && e.key === 'ArrowDown') { goTo(view.cur + 1); e.preventDefault(); }
+  else if (e.altKey && e.key === 'ArrowUp') { goTo(view.cur - 1); e.preventDefault(); }
+  else if (e.ctrlKey && e.key === 'ArrowRight') { if (pairs.length) copyHunk(view.cur, pairs[0][0], pairs[0][1]); e.preventDefault(); }
+  else if (e.ctrlKey && e.key === 'ArrowLeft') { if (pairs.length) { const [a, b] = pairs[pairs.length - 1]; copyHunk(view.cur, b, a); } e.preventDefault(); }
+  else if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey && !inField) { undo(); e.preventDefault(); }
+  else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey)) && !inField) { redo(); e.preventDefault(); }
+});
+
+window.addEventListener('beforeunload', e => { if (files.some(f => f.dirty)) { e.preventDefault(); e.returnValue = ''; } });
+
+// drag & drop anywhere; a single file lands in the pane under the cursor
+let dragDepth = 0;
+document.addEventListener('dragenter', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; document.body.classList.add('dragging'); } });
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  const list = [...(e.dataTransfer.files || [])];
+  if (!list.length) return;
+  const pane = Math.min(nPanes() - 1, Math.floor(e.clientX / (window.innerWidth / nPanes())));
+  openFiles(list, list.length === 1 ? pane : -1);
+});
+
+// theme
+const themes = ['auto', 'light', 'dark'];
+let theme = 'auto';
+try { theme = localStorage.getItem('mc-theme') || 'auto'; } catch (_) {}
+function applyTheme() {
+  if (theme === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  $('#theme').textContent = 'Theme: ' + theme[0].toUpperCase() + theme.slice(1);
+  drawRuler(true);
+}
+$('#theme').onclick = () => { theme = themes[(themes.indexOf(theme) + 1) % 3]; try { localStorage.setItem('mc-theme', theme); } catch (_) {} applyTheme(); };
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => drawRuler(true));
+
+// sample: a base file and two edited versions of it
+const SAMPLE_BASE = `# Deployment notes
+
+server:
+  host: app.example.com
+  port: 8080
+  workers: 4
+
+database:
+  engine: postgres
+  host: db.internal
+  pool_size: 10
+  timeout: 30
+
+features:
+  - search
+  - export
+
+logging:
+  level: info
+  file: /var/log/app.log
+`;
+const SAMPLE_MINE = `# Deployment notes
+
+server:
+  host: app.example.com
+  port: 8443
+  workers: 4
+  tls: true
+
+database:
+  engine: postgres
+  host: db.internal
+  pool_size: 10
+
+features:
+  - search
+  - export
+  - notifications
+
+logging:
+  level: debug
+  file: /var/log/app.log
+`;
+const SAMPLE_THEIRS = `# Deployment notes
+
+server:
+  host: app.example.com
+  port: 8080
+  workers: 8
+
+database:
+  engine: postgres
+  host: db.internal
+  pool_size: 20
+  timeout: 30
+
+features:
+  - search
+  - export
+  - audit-trail
+
+cache:
+  engine: redis
+  ttl: 300
+
+logging:
+  level: warn
+  file: /var/log/app.log
+`;
+function loadSample() {
+  const mine = addFile('config-mine.yaml', SAMPLE_MINE);
+  const base = addFile('config-base.yaml', SAMPLE_BASE);
+  const theirs = addFile('config-theirs.yaml', SAMPLE_THEIRS);
+  panes = nPanes() === 3 ? [mine.id, base.id, theirs.id] : [mine.id, theirs.id];
+  view.cur = 0;
+  refresh();
+  goTo(0);
+}
+$('#sample').onclick = loadSample;
+$('#emptySample').onclick = loadSample;
+
+refresh();
+applyTheme();
+})();
+</script>
+</body>
+</html>
